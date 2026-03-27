@@ -2,6 +2,7 @@ stages:
   data_collection:
     cmd: python src/data/1_data_collection.py
     deps:
+    - src/common
     - src/data/1_data_collection.py
     params:
     - data_collection.test_size
@@ -11,6 +12,7 @@ stages:
     cmd: python src/data/2_data_preparation.py
     deps:
     - data/raw
+    - src/common
     - src/data/2_data_preparation.py
     outs:
     - data/processed
@@ -18,31 +20,51 @@ stages:
     cmd: python src/model/3_model_building.py
     deps:
     - data/processed
+    - src/common
     - src/model/3_model_building.py
     params:
-    - model_building.n_estimators
+    - model.name
+    - random_forest.n_estimators
+    - random_forest.max_depth
+    - logistic_regression.max_iter
+    - xgboost.n_estimators
+    - xgboost.max_depth
+    - xgboost.learning_rate
     outs:
     - models/model.pkl
   model_evaluation:
     cmd: python src/model/4_model_evaluation.py
     deps:
+    - data/processed
     - models/model.pkl
+    - src/common
     - src/model/4_model_evaluation.py
+    params:
+    - model.name
+    - model.registered_name
+    - data_collection.test_size
+    - tracking.enabled
+    - tracking.registry_stage
+    - tracking.repo_owner
+    - tracking.repo_name
+    - tracking.experiment_name
     metrics:
     - reports/metrics.json
     outs:
+    - reports/class_distribution.json
+    - reports/confusion_matrix.png
     - reports/run_info.json
-
   model_registration:
     cmd: python src/model/model_registry.py
     deps:
     - reports/run_info.json
+    - src/common
     - src/model/model_registry.py
-
-params:
-- dvclive/params.yaml
-metrics:
-- dvclive/metrics.json
-plots:
-- dvclive/plots/metrics:
-    x: step
+    params:
+    - tracking.enabled
+    - tracking.registry_stage
+    - tracking.repo_owner
+    - tracking.repo_name
+    - tracking.experiment_name
+    outs:
+    - reports/registry_info.json

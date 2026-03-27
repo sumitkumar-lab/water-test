@@ -1,5 +1,25 @@
 data_collection:
     test_size: 0.20
 
-model_building:
-    n_estimators: 1000
+model:
+    name: random_forest
+    registered_name: Best Model
+
+random_forest:
+    n_estimators: 300
+    max_depth:
+
+logistic_regression:
+    max_iter: 1000
+
+xgboost:
+    n_estimators: 300
+    max_depth: 6
+    learning_rate: 0.1
+
+tracking:
+    enabled: false
+    registry_stage: Staging
+    repo_owner: sumitrwk90
+    repo_name: water-test
+    experiment_name: Final_model

@@ -1,186 +1,127 @@
+from __future__ import annotations
 
-import pandas as pd
-import numpy as np
-import json
-import pickle
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-from dvclive import Live
-import yaml
-import mlflow.sklearn
-import dagshub
-import mlflow
-from mlflow.models import infer_signature
-import seaborn as sns 
-import matplotlib.pyplot as plt
-
-
-# dagshub.init(repo_owner='sumitrwk90', repo_name='water-test', mlflow=True)
-# # Set the experiment name in MLflow
-# mlflow.set_experiment("DVC PIPELINE ")
-# # Set the tracking URI for MLflow to log the experiment in DagsHub
-# mlflow.set_tracking_uri("https://dagshub.com/sumitrwk90/water-test.mlflow") 
-
-
-# Key based authentication
 import os
-# Load dagshub token
-dagshub_token = os.getenv("DAGSHUB_TOKENS")
-if not dagshub_token:
-    raise EnvironmentError("DAGSHUB_TOKEN environment variable is not set")
+import sys
+from pathlib import Path
 
-os.environ["MLFLOW_TRACKING_USERNAME"]=dagshub_token
-os.environ["MLFLOW_TRACKING_PASSWORD"]=dagshub_token
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
-# Dagshub repository details
-dagshub_url = "https://dagshub.com"
-repo_owner = "sumitrwk90"
-repo_name = "water-test"
-mlflow.set_tracking_uri(f"{dagshub_url}/{repo_owner}/{repo_name}.mlflow")
-mlflow.set_experiment("Final_model")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# # .env based
-# from dotenv import load_dotenv
-# import os
-
-# load_dotenv()
-# token = os.getenv("DAGSHUB_TOKENS")
-
-# if token is None:
-#     raise EnvironmentError("DAGSHUB_TOKEN environment variable is not set")
-
-
-
-# Load Data
-def load_data(filepath : str) -> pd.DataFrame:
-    try:
-        return pd.read_csv(filepath)
-    except Exception as e:
-        raise Exception(f"Error loading data from {filepath} : {e}")
-# test_data = pd.read_csv("./data/processed/test_processed.csv")
-
-def prepare_data(data : pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    try:
-        X = data.drop(columns=['Potability'], axis=1)
-        y = data['Potability']
-        return X, y
-    except Exception as e:
-        raise Exception(f"Error preparing data: {e}")
-# x_test = test_data.iloc[:,0:-1].values
-# y_test = test_data.iloc[:,-1].values
-
-def load_model(filepath : str) -> None:
-    try:
-        with open(filepath, "rb") as file:
-            model = pickle.load(file)
-        return model
-    except Exception as e:
-        raise Exception(f"Error loading model from {filepath} : {e}")
-# model = pickle.load(open("model.pkl", "rb"))
-
-def evaluation_model(model, X_test : pd.DataFrame, y_test : pd.Series, model_name: str) -> dict:
-    try:
-
-        # dvc tracking config
-        params = yaml.safe_load(open("params.yaml", "r"))
-        test_size = params["data_collection"]["test_size"]
-        n_estimators = params["model_building"]["n_estimators"]
+from src.common.constants import DEFAULT_LOCAL_MODEL_PATH
+from src.common.io_utils import (
+    load_dataset,
+    load_pickle,
+    load_yaml,
+    save_json,
+    split_features_target,
+    summarize_class_distribution,
+)
+from src.common.modeling import get_model_name
+from src.common.tracking import configure_mlflow, maybe_start_run
 
 
-
-        y_pred = model.predict(X_test)
-
-        acc = accuracy_score(y_test, y_pred)
-        pre = precision_score(y_test, y_pred)
-        recall = recall_score(y_test, y_pred)
-        f1score = f1_score(y_test, y_pred)
-
-
-        # dvc exp tracking config
-        
-        mlflow.log_metric("accuracy", acc)
-        mlflow.log_metric("precision", pre)
-        mlflow.log_metric("recall", recall)
-        mlflow.log_metric("f1_score", f1score)
-
-        mlflow.log_param("test_size", test_size)
-        mlflow.log_param("n_estimators", n_estimators)
+def create_confusion_matrix_plot(
+    y_true: pd.Series,
+    y_pred: list[int],
+    output_path: str,
+    title: str,
+) -> None:
+    matrix = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(5, 5))
+    sns.heatmap(matrix, annot=True, fmt="d", cmap="Blues")
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    plt.title(title)
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
 
 
-            # Confusion matrix
-        cm = confusion_matrix(y_test, y_pred)
-        plt.figure(figsize=(5, 5))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-        plt.xlabel("Predicted")
-        plt.ylabel("Actual")
-        plt.title(f"Confusion Matrix for {model_name}")
-        cm_path = f"confusion_matrix_{model_name.replace(' ', '_')}.png"
-        plt.savefig(cm_path)
-        
-        # Log confusion matrix artifact
-        mlflow.log_artifact(cm_path)
+def main() -> None:
+    params = load_yaml("params.yaml")
+    test_data = load_dataset("./data/processed/test_processed.csv")
+    train_data = load_dataset("./data/processed/train_processed.csv")
+    model = load_pickle(DEFAULT_LOCAL_MODEL_PATH)
 
+    x_test, y_test = split_features_target(test_data)
+    _, y_train = split_features_target(train_data)
 
-        metrics_dict = {
+    y_pred = model.predict(x_test)
+    probabilities = model.predict_proba(x_test)[:, 1] if hasattr(model, "predict_proba") else None
 
-                "accuracy":acc,
-                "precision":pre,
-                "recall":recall,
-                "f1_score":f1score
-        }
-        return metrics_dict
-    except Exception as e:
-        raise Exception(f"Error evaluating model : {e}")
-    
-def save_metrics(metrics_dict : dict, filepath : str) -> None:
-    try:
-        with open('reports/metrics.json', 'w') as file:
-            json.dump(metrics_dict, file, indent=4)
-    except Exception as e:
-        raise Exception(f"Error saving metrics to {filepath} : {e}")
-    
-# with open('metrics.json', 'w') as file:
-#     json.dump(metrics_dict, file, indent=4)
+    metrics = {
+        "accuracy": float(accuracy_score(y_test, y_pred)),
+        "precision": float(precision_score(y_test, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_test, y_pred, zero_division=0)),
+        "f1_score": float(f1_score(y_test, y_pred, zero_division=0)),
+        "roc_auc": float(roc_auc_score(y_test, probabilities)) if probabilities is not None else None,
+    }
 
-def main():
-    try:
-        test_data_path = "./data/processed/test_processed.csv"
-        model_path = "models/model.pkl"
+    class_distribution = {
+        "train": summarize_class_distribution(y_train),
+        "test": summarize_class_distribution(y_test),
+    }
 
-        # Define the path to the metrics file
-        metrics_path = "reports/metrics.json"
-        model_name = "Best Model"
+    reports_dir = "reports"
+    os.makedirs(reports_dir, exist_ok=True)
+    metrics_path = os.path.join(reports_dir, "metrics.json")
+    run_info_path = os.path.join(reports_dir, "run_info.json")
+    class_distribution_path = os.path.join(reports_dir, "class_distribution.json")
+    confusion_matrix_path = os.path.join(reports_dir, "confusion_matrix.png")
+    model_name = params.get("model", {}).get("registered_name", "Best Model")
 
-        test_data = load_data(test_data_path)
-        X_test, y_test = prepare_data(test_data)
-        model = load_model(model_path)
+    create_confusion_matrix_plot(
+        y_test,
+        y_pred,
+        confusion_matrix_path,
+        f"Confusion Matrix for {get_model_name(params)}",
+    )
 
-        # Ensure the directory exists
-        os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
+    tracking_enabled, tracking_reason = configure_mlflow(params)
+    run_info = {
+        "tracking_enabled": tracking_enabled,
+        "tracking_message": tracking_reason,
+        "model_name": model_name,
+        "registered_stage": params.get("tracking", {}).get("registry_stage", "Staging"),
+        "run_id": None,
+    }
 
-        # Start MLflow run
-        with mlflow.start_run() as run:
-            metrics = evaluation_model(model, X_test, y_test, model_name)
-            save_metrics(metrics, metrics_path)
+    with maybe_start_run(tracking_enabled, run_name=f"{get_model_name(params)}_evaluation") as run:
+        if tracking_enabled:
+            import mlflow
+            import mlflow.sklearn
+            from mlflow.models import infer_signature
 
-            # Log artifacts
-            mlflow.log_artifact(model_path)
-            mlflow.log_artifact(metrics_path)
-            
-            # Log the source code file
-            mlflow.log_artifact(__file__)
+            mlflow.log_metrics({key: value for key, value in metrics.items() if value is not None})
+            mlflow.log_params(
+                {
+                    "test_size": params.get("data_collection", {}).get("test_size", 0.2),
+                    "selected_model": get_model_name(params),
+                }
+            )
+            mlflow.log_artifact(DEFAULT_LOCAL_MODEL_PATH)
+            mlflow.log_artifact(confusion_matrix_path)
+            signature = infer_signature(x_test, model.predict(x_test))
+            mlflow.sklearn.log_model(model, model_name, signature=signature)
+            run_info["run_id"] = run.info.run_id
 
-            signature = infer_signature(X_test,model.predict(X_test))
+    save_json(metrics, metrics_path)
+    save_json(class_distribution, class_distribution_path)
+    save_json(run_info, run_info_path)
 
-            mlflow.sklearn.log_model(model,"Best Model",signature=signature)
-
-            #Save run ID and model info to JSON File
-            run_info = {'run_id': run.info.run_id, 'model_name': "Best Model"}
-            reports_path = "reports/run_info.json"
-            with open(reports_path, 'w') as file:
-                json.dump(run_info, file, indent=4)
-
-    except Exception as e:
-        raise Exception(f"An Error occurred: {e}")
 
 if __name__ == "__main__":
     main()

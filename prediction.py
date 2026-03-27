@@ -1,50 +1,38 @@
-import mlflow
-import pandas as pd
+from __future__ import annotations
 
-# Set the tracking URI to your DagsHub MLflow instance
-mlflow.set_tracking_uri("https://dagshub.com/sumitrwk90/water-test.mlflow")
+import argparse
 
-# Specify the model name
-model_name = "Best Model"  # Registered model name
+from src.common.prediction_service import create_input_dataframe, load_model_for_inference, predict_dataframe
 
-try:
-    # Create an MlflowClient to interact with the MLflow server
-    client = mlflow.tracking.MlflowClient()
 
-    # Get the latest version of the model in the Production stage
-    versions = client.get_latest_versions(model_name, stages=["Production"])
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run a sample water potability prediction.")
+    parser.add_argument("--stage", default=None, help="Remote registry stage to load, defaults to params.yaml")
+    parser.add_argument("--local-model-path", default="models/model.pkl", help="Fallback local model path")
+    args = parser.parse_args()
 
-    if versions:
-        latest_version = versions[0].version
-        run_id = versions[0].run_id  # Fetching the run ID from the latest version
-        print(f"Latest version in Production: {latest_version}, Run ID: {run_id}")
+    sample_input = {
+        "ph": [3.71608],
+        "Hardness": [204.89045],
+        "Solids": [20791.318981],
+        "Chloramines": [7.300212],
+        "Sulfate": [368.516441],
+        "Conductivity": [564.308654],
+        "Organic_carbon": [10.379783],
+        "Trihalomethanes": [86.99097],
+        "Turbidity": [2.963135],
+    }
 
-        # Construct the logged_model string
-        logged_model = f'runs:/{run_id}/{model_name}'
-        print("Logged Model:", logged_model)
+    model, metadata = load_model_for_inference(
+        stage=args.stage,
+        local_model_path=args.local_model_path,
+    )
+    dataframe = create_input_dataframe(sample_input)
+    prediction = predict_dataframe(model, dataframe)
 
-        # Load the model using the logged_model variable
-        loaded_model = mlflow.pyfunc.load_model(logged_model)
-        print(f"Model loaded from {logged_model}")
+    print(f"Model source: {metadata}")
+    print(f"Prediction: {prediction}")
 
-        # Input data for prediction
-        data = pd.DataFrame({
-            'ph': [3.71608],
-            'Hardness': [204.89045],
-            'Solids': [20791.318981],
-            'Chloramines': [7.300212],
-            'Sulfate': [368.516441],
-            'Conductivity': [564.308654],
-            'Organic_carbon': [10.379783],
-            'Trihalomethanes': [86.99097],
-            'Turbidity': [2.963135]
-        })
 
-        # Make prediction
-        prediction = loaded_model.predict(data)
-        print("Prediction:", prediction)
-    else:
-        print("No model found in the 'Production' stage.")
-
-except Exception as e:
-    print(f"Error fetching model: {e}")
+if __name__ == "__main__":
+    main()

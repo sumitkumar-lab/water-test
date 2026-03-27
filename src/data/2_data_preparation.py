@@ -1,58 +1,46 @@
+from __future__ import annotations
+
 import os
+import sys
+from pathlib import Path
+
 import pandas as pd
-import numpy as np
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.common.constants import FEATURE_COLUMNS
+from src.common.io_utils import load_dataset, save_dataframe
 
 
-def load_data(filepath : str) -> pd.DataFrame:
-    try:
-        return pd.read_csv(filepath)
-    except Exception as e:
-        raise Exception(f"Error loading data frame {filepath} : {e}")
-# train_data = pd.read_csv("./data/raw/train.csv")
-# test_data = pd.read_csv("./data/raw/test.csv")
+def impute_numeric_features(dataframe: pd.DataFrame) -> pd.DataFrame:
+    processed = dataframe.copy()
+    for column in FEATURE_COLUMNS:
+        processed[column] = pd.to_numeric(processed[column], errors="raise")
+        processed[column] = processed[column].fillna(processed[column].mean())
+    return processed
 
-def fill_missing_with_mean(df):
-    try:
-        for column in df.columns:
-            if df[column].isnull().any():
-                mean_value = df[column].mean()
-                df[column].fillna(mean_value, inplace=True)
 
-        return df
-    except Exception as e:
-        raise Exception(f"Error Filling missing value : {e}")
+def main() -> None:
+    raw_data_path = os.path.join("data", "raw")
+    processed_data_path = os.path.join("data", "processed")
 
-def save_data(df : pd.DataFrame, filepath : str) -> None:
-    try:
-        df.to_csv(filepath, index=False)
-    except Exception as e:
-        raise Exception(f"Error saving data to {filepath} : {e}")
-# train_processed_data = fill_missing_with_median(train_data)
-# test_processed_data = fill_missing_with_median(test_data)
+    train_data = load_dataset(os.path.join(raw_data_path, "train.csv"))
+    test_data = load_dataset(os.path.join(raw_data_path, "test.csv"))
 
-def main():
-    try:
-        raw_data_path = "./data/raw/"
-        processed_data_path = "./data/processed"
+    train_processed_data = impute_numeric_features(train_data)
+    test_processed_data = impute_numeric_features(test_data)
 
-        train_data = load_data(os.path.join(raw_data_path, "train.csv"))
-        test_data = load_data(os.path.join(raw_data_path, "test.csv"))
+    save_dataframe(
+        train_processed_data,
+        os.path.join(processed_data_path, "train_processed.csv"),
+    )
+    save_dataframe(
+        test_processed_data,
+        os.path.join(processed_data_path, "test_processed.csv"),
+    )
 
-        train_processed_data = fill_missing_with_mean(train_data)
-        test_processed_data = fill_missing_with_mean(test_data)
-
-    # data_path = os.path.join("data", "processed")
-
-        os.makedirs(processed_data_path)
-        # os.makedirs(data_path)
-
-        save_data(train_processed_data, os.path.join(processed_data_path, "train_processed.csv"))
-        save_data(test_processed_data, os.path.join(processed_data_path, "test_processed.csv"))
-
-        # train_processed_data.to_csv(os.path.join(data_path, "train_processed.csv"), index=False)
-        # test_processed_data.to_csv(os.path.join(data_path, "test_processed.csv"), index=False)
-    except Exception as e:
-        raise Exception(f"An error occurred : {e}")
 
 if __name__ == "__main__":
     main()

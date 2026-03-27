@@ -1,73 +1,27 @@
-import pandas as pd
-import numpy as np
-import os
-import pickle
-from sklearn.ensemble import RandomForestClassifier
-import yaml
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.common.constants import DEFAULT_LOCAL_MODEL_PATH
+from src.common.io_utils import load_dataset, load_yaml, save_pickle, split_features_target
+from src.common.modeling import build_training_pipeline
 
 
-def load_params(params_path : str) -> int:
-    try:
-        with open(params_path, "r") as file:
-            params = yaml.safe_load(file)
-        return params["model_building"]["n_estimators"]
-    except Exception as e:
-        raise Exception(f"Error loading parameters from {params_path} : {e}")
-# n_estimators = yaml.safe_load(open("params.yaml", "r"))["model_building"]["n_estimators"]
+def main() -> None:
+    params = load_yaml("params.yaml")
+    train_data = load_dataset("./data/processed/train_processed.csv")
+    features, target = split_features_target(train_data)
 
-def load_data(filepath : str) -> pd.DataFrame:
-    try:
-        return pd.read_csv(filepath)
-    except Exception as e:
-        raise Exception(f"Error loading data from {filepath} : {e}")
-# train_data = pd.read_csv("./data/processed/train_processed.csv")
+    model_pipeline = build_training_pipeline(params)
+    model_pipeline.fit(features, target)
 
-# x_train = train_data.iloc[:,0:-1].values
-# y_train = train_data.iloc[:,-1].values
+    save_pickle(model_pipeline, DEFAULT_LOCAL_MODEL_PATH)
 
-def prepare_data(data : pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    try:
-        X = data.drop(columns=['Potability'], axis=1)
-        y = data['Potability']
-        return X, y
-    except Exception as e:
-        raise Exception(f"Error preparing data: {e}")
-    
-# X_train = train_data.drop(columns=["Potability"], axis=1)
-# y_train = train_data["Potability"]
-
-def train_model(X: pd.DataFrame, y : pd.Series, n_estimators : int) -> RandomForestClassifier:
-    try:
-        clf = RandomForestClassifier(n_estimators=n_estimators)
-        clf.fit(X, y)
-        return clf
-    except Exception as e:
-        raise Exception(f"Error Training model :{e}")
-    
-def save_model(model : RandomForestClassifier, filepath : str) -> None:
-    try:
-        with open(filepath, 'wb') as file:
-            pickle.dump(model, file)
-    except Exception as e:
-        raise Exception(f"Error saving model to {filepath}: {e}")
-
-# pickle.dump(clf, open("model.pkl", "wb"))
-
-def main():
-    try:
-        params_path = "params.yaml"
-        data_path = "./data/processed/train_processed.csv"
-        model_name = "./models/model.pkl"
-
-        n_estimators = load_params(params_path)
-        train_data = load_data(data_path)
-        X_train, y_train = prepare_data(train_data)
-
-        model = train_model(X_train, y_train, n_estimators)
-        save_model(model, model_name)
-    except Exception as e:
-        raise Exception(f"An error occured: {e}")
-    
 
 if __name__ == "__main__":
     main()

@@ -1,62 +1,55 @@
-import json
-from mlflow.tracking import MlflowClient
-import mlflow
+from __future__ import annotations
 
-import dagshub
-# dagshub.init(repo_owner='sumitrwk90', repo_name='water-test', mlflow=True)
+import sys
+from pathlib import Path
 
-# # Set the experiment name in MLflow
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# mlflow.set_experiment("Final_Model")
+from src.common.io_utils import load_json, load_yaml, save_json
+from src.common.tracking import configure_mlflow, get_tracking_settings
 
-# # Set the tracking URI for MLflow to log the experiment in DagsHub
-# mlflow.set_tracking_uri("https://dagshub.com/sumitrwk90/water-test.mlflow") 
 
-# Key based authentication
-import os
-# Load dagshub token
-dagshub_token = os.getenv("DAGSHUB_TOKENS")
-if not dagshub_token:
-    raise EnvironmentError("DAGSHUB_TOKEN environment variable is not set")
+def main() -> None:
+    params = load_yaml("params.yaml")
+    run_info = load_json("reports/run_info.json")
+    tracking_enabled, tracking_reason = configure_mlflow(params)
+    tracking_settings = get_tracking_settings(params)
 
-os.environ["MLFLOW_TRACKING_USERNAME"]=dagshub_token
-os.environ["MLFLOW_TRACKING_PASSWORD"]=dagshub_token
+    registry_info = {
+        "status": "skipped",
+        "message": tracking_reason,
+        "model_name": run_info.get("model_name"),
+        "target_stage": tracking_settings["registry_stage"],
+        "version": None,
+    }
 
-# Dagshub repository details
-dagshub_url = "https://dagshub.com"
-repo_owner = "sumitrwk90"
-repo_name = "water-test"
-mlflow.set_tracking_uri(f"{dagshub_url}/{repo_owner}/{repo_name}.mlflow")
-mlflow.set_experiment("Final_model")
+    if tracking_enabled and run_info.get("run_id"):
+        import mlflow
+        from mlflow.tracking import MlflowClient
 
-# Load the run ID and model name from the saved JSON file
-reports_path = "reports/run_info.json"
-with open(reports_path, 'r') as file:
-    run_info = json.load(file)
+        client = MlflowClient()
+        model_uri = f"runs:/{run_info['run_id']}/{run_info['model_name']}"
+        registered_model = mlflow.register_model(model_uri, run_info["model_name"])
 
-run_id = run_info['run_id'] # Fetch run id from the JSON file
-model_name = run_info['model_name']  # Fetch model name from the JSON file
+        client.transition_model_version_stage(
+            name=run_info["model_name"],
+            version=registered_model.version,
+            stage=tracking_settings["registry_stage"],
+            archive_existing_versions=True,
+        )
 
-# Create an MLflow client
-client = MlflowClient()
+        registry_info.update(
+            {
+                "status": "registered",
+                "message": "Model registered successfully",
+                "version": registered_model.version,
+            }
+        )
 
-# Create the model URI
-model_uri = f"runs:/{run_id}/artifacts/{model_name}"
+    save_json(registry_info, "reports/registry_info.json")
 
-# Register the model
-reg = mlflow.register_model(model_uri, model_name)
 
-# Get the model version
-model_version = reg.version  # Get the registered model version
-
-# Transition the model version to Staging
-new_stage = "Staging"
-
-client.transition_model_version_stage(
-    name=model_name,
-    version=model_version,
-    stage=new_stage,
-    archive_existing_versions=True
-)
-
-print(f"Model {model_name} version {model_version} transitioned to {new_stage} stage.")
+if __name__ == "__main__":
+    main()
