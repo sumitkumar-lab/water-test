@@ -54,6 +54,58 @@ Launch the desktop GUI:
 python GUI.py
 ```
 
+## FastAPI service
+
+Start the API locally after installing the new dependencies:
+
+```bash
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+```
+
+Available endpoints:
+
+- `GET /`
+- `GET /health`
+- `POST /predict`
+- `GET /docs`
+
+Example request:
+
+```json
+{
+  "samples": [
+    {
+      "ph": 7.2,
+      "Hardness": 180.0,
+      "Solids": 15000.0,
+      "Chloramines": 6.5,
+      "Sulfate": 320.0,
+      "Conductivity": 430.0,
+      "Organic_carbon": 12.4,
+      "Trihalomethanes": 75.0,
+      "Turbidity": 3.8
+    }
+  ]
+}
+```
+
+## Docker
+
+Build and run the API image:
+
+```bash
+docker build -t water-potability-api .
+docker run -p 8000:8000 water-potability-api
+```
+
+Or use Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+The container defaults to the local model at `models/model.pkl`. If you want remote registry loading, pass `DAGSHUB_TOKENS` and set `tracking.enabled: true` in `params.yaml`.
+
 ## Remote tracking
 
 Remote MLflow/DagsHub logging is optional. For local-only runs, keep `tracking.enabled: false`.
@@ -80,4 +132,4 @@ Prediction expects these numeric inputs:
 - `Trihalomethanes`
 - `Turbidity`
 
-Both the CLI script and the Tkinter GUI use the same shared prediction service and input validation.
+The CLI script, Tkinter GUI, and FastAPI service all use the same shared prediction service and input validation.

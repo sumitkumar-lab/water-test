@@ -6,6 +6,11 @@ matplotlib==3.10.1
 seaborn==0.13.2
 xgboost==3.0.0
 
+# API serving
+fastapi==0.115.12
+uvicorn==0.34.0
+pydantic==2.11.2
+
 # Workflow tooling
 DVC==3.59.1
 

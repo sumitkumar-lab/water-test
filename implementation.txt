@@ -1,0 +1,161 @@
+# Water Potability Pipeline V2 Upgrade Plan
+
+## Summary
+
+Upgrade the project from a working single-model pipeline into a more maintainable ML system with stronger preprocessing, repeatable model comparison, safer evaluation, and a cleaner deployment path. Keep DVC as the backbone, preserve the current dataset and prediction inputs, and refactor the code so training, evaluation, and serving all use the same preprocessing and model contract.
+
+## Key Changes
+
+### 1. Standardize the training pipeline
+- Replace the current manual preprocessing flow with a single sklearn `Pipeline` that handles imputation and model training together.
+- Use `SimpleImputer(strategy="mean")` for numeric columns to preserve current behavior while eliminating duplicated preprocessing logic.
+- Train on feature columns only and keep `Potability` as the target everywhere through a shared utility layer.
+- Save the full fitted pipeline as the model artifact so inference and training use identical preprocessing.
+
+### 2. Refactor the codebase around shared utilities
+- Add a small shared module for loading datasets, splitting features/target, reading params, and serializing artifacts.
+- Keep DVC stages, but make each stage thinner:
+  - data collection: load source CSV and split train/test
+  - data preparation: validate schema and optionally persist cleaned snapshots
+  - model building: fit the sklearn pipeline
+  - model evaluation: load fitted pipeline and compute metrics/artifacts
+- Preserve the current stage order in [`dvc.yaml`](d:\water-test\dvc.yaml), but update dependencies/outputs to match the refactor.
+- Treat notebooks as experiments only; do not make them part of the production path.
+
+### 3. Expand model selection into the formal workflow
+- Add a configurable model-selection stage that can compare at least:
+  - Logistic Regression
+  - Random Forest
+  - XGBoost if installed, otherwise skip gracefully
+- Define model choice in [`params.yaml`](d:\water-test\params.yaml) with a default of `random_forest`.
+- Add model-specific parameter sections in [`params.yaml`](d:\water-test\params.yaml), starting with:
+  - `random_forest.n_estimators`
+  - `random_forest.max_depth`
+  - `logistic_regression.max_iter`
+- Keep the first implementation simple: one selected model per DVC run, with optional follow-up support for benchmark runs across multiple models.
+
+### 4. Strengthen evaluation and experiment tracking
+- Keep current metrics and add:
+  - ROC-AUC
+  - confusion matrix artifact
+  - class distribution summary for train/test
+- Continue logging to MLflow/DagsHub when credentials are present.
+- Make MLflow logging optional so local pipeline runs still work without `DAGSHUB_TOKENS`.
+- Write evaluation outputs to tracked JSON files under `reports/` and ensure DVC references those exact paths.
+- Fix the registration/serving contract:
+  - registration stage can promote to `Staging`
+  - prediction and GUI must support a configurable stage, defaulting to `Staging` for internal testing
+  - production promotion becomes an explicit later action, not an implicit assumption
+
+### 5. Prepare for new functionality
+- Introduce input schema validation for inference so prediction fails clearly on missing or invalid fields.
+- Move prediction logic into a reusable function used by both CLI/script and GUI.
+- Keep the current Tkinter GUI, but make it call the shared prediction service instead of embedding MLflow-loading logic directly.
+- Update [`README.md`](d:\water-test\README.md) to document:
+  - local pipeline flow
+  - required env vars for remote tracking
+  - DVC commands
+  - how to run prediction and GUI
+
+## Public Interfaces And Config Changes
+
+- Extend [`params.yaml`](d:\water-test\params.yaml) to include:
+  - `data_collection.test_size`
+  - `model.name`
+  - `random_forest.n_estimators`
+  - `random_forest.max_depth`
+  - `logistic_regression.max_iter`
+  - `tracking.enabled`
+  - `tracking.registry_stage`
+- Keep prediction inputs unchanged:
+  - `ph`
+  - `Hardness`
+  - `Solids`
+  - `Chloramines`
+  - `Sulfate`
+  - `Conductivity`
+  - `Organic_carbon`
+  - `Trihalomethanes`
+  - `Turbidity`
+- Make the saved model artifact a fitted sklearn pipeline rather than a bare estimator.
+- Add a shared prediction API in code that accepts a one-row or multi-row pandas DataFrame and returns class predictions.
+
+## Test Plan
+
+- Data collection:
+  - source CSV loads correctly
+  - train/test split respects configured `test_size`
+  - output files are created with expected row counts
+- Data preparation:
+  - required columns exist
+  - missing numeric values are imputed
+  - target column remains unchanged
+- Model building:
+  - selected model from params is instantiated correctly
+  - fitted pipeline can train on processed input without manual preprocessing
+  - saved model artifact can be reloaded
+- Evaluation:
+  - metrics JSON contains accuracy, precision, recall, f1, and roc_auc
+  - confusion matrix artifact is generated
+  - local run succeeds when MLflow tracking is disabled
+- Prediction:
+  - valid sample input returns a prediction
+  - missing field or non-numeric value raises a clear validation error
+  - GUI and script both use the same shared prediction path
+- Registry:
+  - registration is skipped or fails clearly when remote tracking is unavailable
+  - configurable target stage is respected
+
+## Assumptions And Defaults
+
+- The dataset schema remains the same as the current `water_potability.csv`.
+- Mean imputation remains the default to preserve current behavior; no advanced feature engineering is introduced in v2.
+- Random Forest remains the default model for the first upgraded version.
+- DVC remains the orchestration layer; no switch to Airflow, Prefect, or FastAPI in this phase.
+- Remote MLflow/DagsHub integration is optional for local development and required only for registry-based workflows.
+- GUI stays desktop-based for now; a web app/API can be a later phase after the shared prediction layer is stable.
+
+
+Implemented the V2 refactor across the pipeline, inference path, config, and docs. The main change is that training now 
+saves a full sklearn pipeline with built-in mean imputation and configurable model selection, and both CLI/GUI inference 
+now use the same shared validation and prediction service. The new shared modules live under [src/common](d:/water-test/src/common), 
+and the refactored stages are [1_data_collection.py](d:/water-test/src/data/1_data_collection.py), 
+[2_data_preparation.py](d:/water-test/src/data/2_data_preparation.py), 
+[3_model_building.py](d:/water-test/src/model/3_model_building.py), [4_model_evaluation.py](d:/water-test/src/model/4_model_evaluation.py), 
+and [model_registry.py](d:/water-test/src/model/model_registry.py). I also updated [params.yaml](d:/water-test/params.yaml), [dvc.yaml](d:/water-test/dvc.yaml), 
+[prediction.py](d:/water-test/prediction.py), [GUI.py](d:/water-test/GUI.py), and [README.md](d:/water-test/README.md), plus added unit tests in 
+[tests/test_pipeline_v2.py](d:/water-test/tests/test_pipeline_v2.py).
+
+Verification passed locally. I ran syntax checks, `python -m unittest discover -s tests`, then executed all stages manually in order plus
+ `python prediction.py`. The refactored pipeline generated new reports under [reports/metrics.json](d:/water-test/reports/metrics.json), 
+ [reports/class_distribution.json](d:/water-test/reports/class_distribution.json), [reports/run_info.json](d:/water-test/reports/run_info.json), 
+ and [reports/registry_info.json](d:/water-test/reports/registry_info.json). Current local metrics are:
+accuracy `0.6646`, 
+precision `0.6525`, 
+recall `0.3008`, 
+F1 `0.4118`, and 
+ROC-AUC `0.6533`. 
+Prediction is working from the local saved model artifact and returned `[0]` for the sample input.
+
+One important note: I made MLflow truly optional for local runs, because this environment does not currently have the full MLflow dependency 
+stack available. With `tracking.enabled: false`, everything works locally; when you want remote registry/tracking again, turn it back on in
+ [params.yaml](d:/water-test/params.yaml) and make sure the MLflow/DagsHub dependencies and `DAGSHUB_TOKENS` are available.
+
+
+# ====================== #
+ Added a FastAPI service and Docker setup for the project.
+
+The new API lives in [src/api/main.py](d:/water-test/src/api/main.py). It exposes:
+- `GET /`
+- `GET /health`
+- `POST /predict`
+- Swagger docs at `/docs`
+
+It reuses the existing shared prediction layer, so the CLI, GUI, and API all go through the same validation and model-loading path. 
+I also updated [requirements.txt](d:/water-test/requirements.txt) to include `fastapi`, `uvicorn`, and `pydantic`, and 
+added [Dockerfile](d:/water-test/Dockerfile), [.dockerignore](d:/water-test/.dockerignore), and [docker-compose.yml](d:/water-test/docker-compose.yml). 
+The usage docs in [README.md](d:/water-test/README.md) now include local API startup and Docker commands.
+
+I wasn’t able to runtime-test the FastAPI app or build the Docker image in this environment because `fastapi` and `pydantic` are not currently installed here, 
+so I kept the implementation honest and documented. Once you install the new requirements, you can run it with 
+`uvicorn src.api.main:app --host 0.0.0.0 --port 8000` or `docker compose up --build`.

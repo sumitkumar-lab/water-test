@@ -1,0 +1,9 @@
+services:
+  water-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      LOCAL_MODEL_PATH: models/model.pkl
+      MODEL_STAGE: Staging
+      DAGSHUB_TOKENS: ${DAGSHUB_TOKENS:-}
