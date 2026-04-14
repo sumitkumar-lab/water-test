@@ -27,11 +27,13 @@ def main() -> None:
         stage=args.stage,
         local_model_path=args.local_model_path,
     )
+    print("======= Dataframe is creating =======")
     dataframe = create_input_dataframe(sample_input)
+    print("======= Model started predicting =======")
     prediction = predict_dataframe(model, dataframe)
 
-    print(f"Model source: {metadata}")
-    print(f"Prediction: {prediction}")
+    print(f"Your Model source is: {metadata}")
+    print(f"Your Prediction is: {prediction}")
 
 
 if __name__ == "__main__":
