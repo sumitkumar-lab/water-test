@@ -14,7 +14,7 @@ class PredictionApp(tk.Tk):
         self.geometry("400x500")
         self.configure(bg="#eaeaea")
 
-        self.input_frame = tk.Frame(self, bg="#ffffff", padx=20, pady=20)
+        self.input_frame = tk.Frame(self, bg="#efc9c9", padx=20, pady=20)
         self.input_frame.pack(pady=20)
 
         title_label = tk.Label(self.input_frame, text="Water Quality Prediction", font=("Helvetica", 16, "bold"), bg="#ffffff")
